@@ -1,0 +1,15 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not found</PageTitle>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <div class="container mt-5 text-center">
+                <h2>Page not found</h2>
+                <a href="/" class="btn btn-primary mt-3">Go to API Tester</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

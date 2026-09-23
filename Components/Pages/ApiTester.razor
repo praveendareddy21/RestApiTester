@@ -1,0 +1,561 @@
+@page "/"
+@rendermode InteractiveServer
+@inject OpenApiParserService ParserService
+@inject ApiExecutorService ExecutorService
+
+<PageTitle>REST API Tester</PageTitle>
+
+@if (!isParsed)
+{
+    <!-- ──────────────────── Upload / Paste screen ──────────────────── -->
+    <div class="upload-screen">
+        <div class="upload-card">
+            <div class="upload-card-header">
+                <i class="bi bi-file-earmark-code fs-1 text-primary mb-2"></i>
+                <h4 class="mb-1">Load OpenAPI Specification</h4>
+                <p class="text-muted small mb-0">Upload or paste a JSON / YAML OpenAPI 3.x spec</p>
+            </div>
+
+            <div class="upload-card-body">
+                <!-- File picker -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Upload file</label>
+                    <InputFile class="form-control" accept=".json,.yaml,.yml" OnChange="HandleFileUpload" />
+                </div>
+
+                <div class="divider-or"><span>or paste below</span></div>
+
+                <!-- Paste area -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">OpenAPI JSON / YAML</label>
+                    <textarea class="form-control code-area" rows="10" placeholder="{ &quot;openapi&quot;: &quot;3.0.0&quot;, ... }"
+                              @bind="openApiContent" @bind:event="oninput"></textarea>
+                </div>
+
+                @if (!string.IsNullOrEmpty(parseError))
+                {
+                    <div class="alert alert-danger py-2 small mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i>@parseError
+                    </div>
+                }
+
+                <button class="btn btn-primary w-100" @onclick="ParseSpec" disabled="@(isParsing || string.IsNullOrWhiteSpace(openApiContent))">
+                    @if (isParsing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Parsing...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-lightning-charge-fill me-2"></i>
+                        <span>Load Spec</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <!-- ──────────────────── Three-column tester ──────────────────── -->
+    <div class="tester-layout">
+
+        <!-- ── Left panel: Proxy / Tag list ── -->
+        <div class="panel panel-proxies">
+            <div class="panel-toolbar">
+                <span class="panel-title">APIs</span>
+                <button class="btn btn-sm btn-outline-secondary py-0 ms-auto" @onclick="Reset" title="Load new spec">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="panel-search">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" class="search-input" placeholder="Filter APIs..." @bind="proxySearch" @bind:event="oninput" />
+            </div>
+            <div class="panel-list">
+                @foreach (var proxy in FilteredProxies)
+                {
+                    <div class="proxy-item @(selectedProxy == proxy ? "active" : "")" @onclick="() => SelectProxy(proxy)">
+                        <span class="proxy-name">@proxy.Name</span>
+                        <span class="proxy-count">@proxy.Endpoints.Count</span>
+                    </div>
+                }
+                @if (!FilteredProxies.Any())
+                {
+                    <div class="empty-list">No APIs match.</div>
+                }
+            </div>
+        </div>
+
+        <!-- ── Middle panel: Endpoint list ── -->
+        <div class="panel panel-endpoints">
+            <div class="panel-toolbar">
+                <span class="panel-title">
+                    @(selectedProxy != null ? selectedProxy.Name : "Methods")
+                </span>
+            </div>
+            <div class="panel-search">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" class="search-input" placeholder="Filter methods..." @bind="endpointSearch" @bind:event="oninput" />
+            </div>
+            <div class="panel-list">
+                @if (selectedProxy == null)
+                {
+                    <div class="empty-list">Select an API group.</div>
+                }
+                else
+                {
+                    @foreach (var ep in FilteredEndpoints)
+                    {
+                        <div class="endpoint-item @(selectedEndpoint == ep ? "active" : "")" @onclick="() => SelectEndpoint(ep)">
+                            <span class="method-badge method-@ep.Method.ToLower()">@ep.Method</span>
+                            <div class="endpoint-info">
+                                <div class="endpoint-summary">@ep.DisplayLabel</div>
+                                <div class="endpoint-path">@ep.Path</div>
+                            </div>
+                        </div>
+                    }
+                    @if (!FilteredEndpoints.Any())
+                    {
+                        <div class="empty-list">No methods match.</div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- ── Right panel: Request / Response ── -->
+        <div class="panel panel-request">
+
+            @if (selectedEndpoint == null)
+            {
+                <div class="empty-state">
+                    <i class="bi bi-cursor-fill fs-1 text-muted mb-3"></i>
+                    <p class="text-muted">Select a method to get started</p>
+                </div>
+            }
+            else
+            {
+                <!-- Endpoint header bar -->
+                <div class="request-header">
+                    <span class="method-badge method-@selectedEndpoint.Method.ToLower() me-2">@selectedEndpoint.Method</span>
+                    <code class="endpoint-full-path">@selectedEndpoint.Path</code>
+                    @if (!string.IsNullOrEmpty(selectedEndpoint.Summary))
+                    {
+                        <span class="text-muted small ms-3">— @selectedEndpoint.Summary</span>
+                    }
+                </div>
+
+                <!-- Base URL bar -->
+                <div class="url-bar">
+                    <select class="url-server-select" @bind="baseUrl">
+                        @foreach (var url in serverUrls)
+                        {
+                            <option value="@url">@url</option>
+                        }
+                    </select>
+                    <input type="text" class="url-input" @bind="baseUrl" placeholder="https://api.example.com" />
+                    <button class="btn btn-execute" @onclick="Execute" disabled="@isExecuting">
+                        @if (isExecuting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Sending...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-send-fill me-1"></i>
+                            <span>Send</span>
+                        }
+                    </button>
+                </div>
+
+                <!-- Request tabs -->
+                <div class="req-tabs">
+                    <button class="req-tab @(activeTab == "params" ? "active" : "")" @onclick='() => activeTab = "params"'>
+                        Parameters
+                        @{
+                            var pcount = selectedEndpoint.Parameters.Count(p => p.In != "header");
+                        }
+                        @if (pcount > 0)
+                        {
+                            <span class="tab-badge">@pcount</span>
+                        }
+                    </button>
+                    <button class="req-tab @(activeTab == "headers" ? "active" : "")" @onclick='() => activeTab = "headers"'>
+                        Headers
+                        @if (customHeaders.Count > 0)
+                        {
+                            <span class="tab-badge">@customHeaders.Count</span>
+                        }
+                    </button>
+                    @if (selectedEndpoint.HasRequestBody)
+                    {
+                        <button class="req-tab @(activeTab == "body" ? "active" : "")" @onclick='() => activeTab = "body"'>
+                            Body
+                        </button>
+                    }
+                </div>
+
+                <!-- Tab content -->
+                <div class="req-tab-content">
+
+                    @if (activeTab == "params")
+                    {
+                        @if (!selectedEndpoint.Parameters.Any(p => p.In != "header"))
+                        {
+                            <div class="empty-list p-3">No parameters for this operation.</div>
+                        }
+                        else
+                        {
+                            <div class="params-table">
+                                <div class="params-header">
+                                    <span>Name</span>
+                                    <span>In</span>
+                                    <span>Type</span>
+                                    <span>Value</span>
+                                </div>
+                                @foreach (var param in selectedEndpoint.Parameters.Where(p => p.In != "header"))
+                                {
+                                    <div class="params-row">
+                                        <div class="param-name">
+                                            @param.Name
+                                            @if (param.Required)
+                                            {
+                                                <span class="required-star">*</span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(param.Description))
+                                            {
+                                                <div class="param-desc">@param.Description</div>
+                                            }
+                                        </div>
+                                        <div><span class="in-badge in-@param.In">@param.In</span></div>
+                                        <div class="param-type">@param.Type</div>
+                                        <div>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="@(param.DefaultValue ?? param.Type)"
+                                                   @bind="param.Value" @bind:event="oninput" />
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+
+                    @if (activeTab == "headers")
+                    {
+                        <div class="headers-section p-3">
+                            <!-- OpenAPI-defined header params -->
+                            @if (selectedEndpoint.Parameters.Any(p => p.In == "header"))
+                            {
+                                <div class="section-label mb-2">Spec-defined headers</div>
+                                @foreach (var param in selectedEndpoint.Parameters.Where(p => p.In == "header"))
+                                {
+                                    <div class="d-flex gap-2 mb-2">
+                                        <input type="text" class="form-control form-control-sm" value="@param.Name" readonly />
+                                        <input type="text" class="form-control form-control-sm"
+                                               placeholder="value"
+                                               @bind="param.Value" @bind:event="oninput" />
+                                    </div>
+                                }
+                                <hr class="my-2" />
+                            }
+                            <!-- Custom headers -->
+                            <div class="section-label mb-2">Custom headers</div>
+                            @foreach (var header in customHeaders)
+                            {
+                                <div class="d-flex gap-2 mb-2">
+                                    <input type="text" class="form-control form-control-sm" placeholder="Header name"
+                                           @bind="header.Key" @bind:event="oninput" />
+                                    <input type="text" class="form-control form-control-sm" placeholder="Value"
+                                           @bind="header.Value" @bind:event="oninput" />
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => customHeaders.Remove(header)">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            }
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="AddHeader">
+                                <i class="bi bi-plus me-1"></i>Add header
+                            </button>
+                        </div>
+                    }
+
+                    @if (activeTab == "body" && selectedEndpoint.HasRequestBody)
+                    {
+                        <div class="body-section">
+                            <div class="body-toolbar">
+                                <span class="section-label">Content-Type: <code>@selectedEndpoint.ContentType</code></span>
+                                <button class="btn btn-xs btn-outline-secondary ms-auto" @onclick="ResetBody">
+                                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                                </button>
+                            </div>
+                            <textarea class="body-editor" @bind="requestBody" @bind:event="oninput"
+                                      placeholder='{ "key": "value" }'></textarea>
+                        </div>
+                    }
+                </div>
+
+                <!-- ── Response area ── -->
+                @if (executionResult != null)
+                {
+                    <div class="response-panel">
+                        <div class="response-header">
+                            <span class="response-title">Response</span>
+                            <span class="status-badge @executionResult.StatusClass">
+                                @executionResult.StatusCode @executionResult.ReasonPhrase
+                            </span>
+                            <span class="response-time ms-3 text-muted small">
+                                <i class="bi bi-clock me-1"></i>@executionResult.ElapsedMilliseconds ms
+                            </span>
+                            <span class="ms-auto">
+                                @if (!string.IsNullOrEmpty(executionResult.RequestUrl))
+                                {
+                                    <code class="text-muted small">@executionResult.RequestUrl</code>
+                                }
+                            </span>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(executionResult.ErrorMessage))
+                        {
+                            <div class="alert alert-danger m-3">
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>@executionResult.ErrorMessage
+                            </div>
+                        }
+                        else
+                        {
+                            <!-- Response tabs -->
+                            <div class="req-tabs">
+                                <button class="req-tab @(responseTab == "body" ? "active" : "")" @onclick='() => responseTab = "body"'>Body</button>
+                                <button class="req-tab @(responseTab == "headers" ? "active" : "")" @onclick='() => responseTab = "headers"'>
+                                    Headers
+                                    <span class="tab-badge">@executionResult.ResponseHeaders.Count</span>
+                                </button>
+                                <button class="req-tab @(responseTab == "request" ? "active" : "")" @onclick='() => responseTab = "request"'>Request sent</button>
+                            </div>
+
+                            @if (responseTab == "body")
+                            {
+                                <pre class="response-body">@executionResult.ResponseBody</pre>
+                            }
+
+                            @if (responseTab == "headers")
+                            {
+                                <div class="params-table m-2">
+                                    <div class="params-header">
+                                        <span>Header</span>
+                                        <span style="grid-column: span 3">Value</span>
+                                    </div>
+                                    @foreach (var h in executionResult.ResponseHeaders)
+                                    {
+                                        <div class="params-row">
+                                            <div class="param-name fw-semibold">@h.Key</div>
+                                            <div style="grid-column: span 3; word-break: break-all;">@h.Value</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            @if (responseTab == "request")
+                            {
+                                <div class="p-3">
+                                    <div class="mb-3">
+                                        <div class="section-label mb-1">URL</div>
+                                        <code class="d-block p-2 bg-body-secondary rounded">
+                                            @executionResult.RequestMethod @executionResult.RequestUrl
+                                        </code>
+                                    </div>
+                                    @if (executionResult.RequestHeadersSent.Any())
+                                    {
+                                        <div class="mb-3">
+                                            <div class="section-label mb-1">Headers sent</div>
+                                            @foreach (var h in executionResult.RequestHeadersSent)
+                                            {
+                                                <div class="d-flex gap-2 mb-1 small">
+                                                    <code class="text-info">@h.Key</code>
+                                                    <span class="text-muted">:</span>
+                                                    <code>@h.Value</code>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrEmpty(executionResult.RequestBody))
+                                    {
+                                        <div>
+                                            <div class="section-label mb-1">Body sent</div>
+                                            <pre class="response-body">@executionResult.RequestBody</pre>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                else if (isExecuting)
+                {
+                    <div class="d-flex justify-content-center align-items-center p-5">
+                        <span class="spinner-border text-primary me-3"></span>
+                        <span class="text-muted">Waiting for response...</span>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    // ── State ──
+    private string openApiContent = "";
+    private string parseError = "";
+    private bool isParsing = false;
+    private bool isParsed = false;
+
+    private List<ApiProxy> proxies = new();
+    private List<string> serverUrls = new();
+    private string baseUrl = "";
+
+    private ApiProxy? selectedProxy;
+    private ApiEndpoint? selectedEndpoint;
+
+    private string proxySearch = "";
+    private string endpointSearch = "";
+
+    private string activeTab = "params";
+    private string responseTab = "body";
+
+    private string requestBody = "";
+    private List<HeaderEntry> customHeaders = new();
+
+    private ExecutionResult? executionResult;
+    private bool isExecuting = false;
+
+    private CancellationTokenSource? _cts;
+
+    // ── Computed ──
+    private IEnumerable<ApiProxy> FilteredProxies =>
+        string.IsNullOrWhiteSpace(proxySearch)
+            ? proxies
+            : proxies.Where(p => p.Name.Contains(proxySearch, StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<ApiEndpoint> FilteredEndpoints =>
+        selectedProxy == null
+            ? Enumerable.Empty<ApiEndpoint>()
+            : string.IsNullOrWhiteSpace(endpointSearch)
+                ? selectedProxy.Endpoints
+                : selectedProxy.Endpoints.Where(e =>
+                    e.Path.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
+                    e.Summary.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
+                    e.Method.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
+                    e.OperationId.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase));
+
+    // ── Handlers ──
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            openApiContent = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            parseError = $"Could not read file: {ex.Message}";
+        }
+    }
+
+    private async Task ParseSpec()
+    {
+        if (string.IsNullOrWhiteSpace(openApiContent)) return;
+
+        isParsing = true;
+        parseError = "";
+        StateHasChanged();
+        await Task.Yield();
+
+        var result = ParserService.Parse(openApiContent);
+
+        if (!result.Success)
+        {
+            parseError = result.Error ?? "Unknown parse error.";
+        }
+        else
+        {
+            proxies = result.Proxies;
+            serverUrls = result.ServerUrls;
+            baseUrl = serverUrls.FirstOrDefault() ?? "";
+            isParsed = true;
+
+            if (proxies.Any())
+                SelectProxy(proxies.First());
+        }
+
+        isParsing = false;
+        StateHasChanged();
+    }
+
+    private void SelectProxy(ApiProxy proxy)
+    {
+        selectedProxy = proxy;
+        selectedEndpoint = null;
+        executionResult = null;
+        endpointSearch = "";
+
+        if (proxy.Endpoints.Any())
+            SelectEndpoint(proxy.Endpoints.First());
+    }
+
+    private void SelectEndpoint(ApiEndpoint ep)
+    {
+        selectedEndpoint = ep;
+        executionResult = null;
+        activeTab = "params";
+        responseTab = "body";
+
+        // Reset param values and pre-fill defaults
+        foreach (var p in ep.Parameters)
+            if (string.IsNullOrEmpty(p.Value) && !string.IsNullOrEmpty(p.DefaultValue))
+                p.Value = p.DefaultValue;
+
+        // Pre-fill body with generated example
+        requestBody = ep.RequestBodyExample ?? "";
+
+        // Switch to body tab if no params and has body
+        if (!ep.Parameters.Any(p => p.In != "header") && ep.HasRequestBody)
+            activeTab = "body";
+    }
+
+    private async Task Execute()
+    {
+        if (selectedEndpoint == null) return;
+
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        isExecuting = true;
+        executionResult = null;
+        StateHasChanged();
+
+        executionResult = await ExecutorService.ExecuteAsync(
+            baseUrl, selectedEndpoint, requestBody, customHeaders, _cts.Token);
+
+        isExecuting = false;
+        responseTab = "body";
+        StateHasChanged();
+    }
+
+    private void AddHeader() => customHeaders.Add(new HeaderEntry());
+
+    private void ResetBody() => requestBody = selectedEndpoint?.RequestBodyExample ?? "";
+
+    private void Reset()
+    {
+        isParsed = false;
+        openApiContent = "";
+        parseError = "";
+        proxies = new();
+        serverUrls = new();
+        selectedProxy = null;
+        selectedEndpoint = null;
+        executionResult = null;
+        customHeaders = new();
+    }
+}
