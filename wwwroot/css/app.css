@@ -55,6 +55,16 @@ html, body {
     box-shadow: 0 0 0 2px rgba(122,162,247,0.2);
 }
 
+.bundled-spec-bar {
+    display: flex;
+    align-items: center;
+    background: #0d2a0d;
+    border: 1px solid #1f5c1f;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+}
+
 .divider-or {
     display: flex;
     align-items: center;

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject OpenApiParserService ParserService
 @inject ApiExecutorService ExecutorService
+@inject IWebHostEnvironment Env
 
 <PageTitle>REST API Tester</PageTitle>
 
@@ -17,6 +18,18 @@
             </div>
 
             <div class="upload-card-body">
+                <!-- Bundled file shortcut -->
+                @if (bundledSpecExists)
+                {
+                    <div class="bundled-spec-bar mb-3">
+                        <i class="bi bi-file-earmark-check text-success me-2"></i>
+                        <span class="small text-muted">Bundled spec found: <code>openapi.json</code></span>
+                        <button class="btn btn-sm btn-outline-primary ms-auto" @onclick="LoadBundledSpec" disabled="@isParsing">
+                            <i class="bi bi-lightning-charge me-1"></i>Load bundled
+                        </button>
+                    </div>
+                }
+
                 <!-- File picker -->
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Upload file</label>
@@ -406,6 +419,7 @@ else
     private string parseError = "";
     private bool isParsing = false;
     private bool isParsed = false;
+    private bool bundledSpecExists = false;
 
     private List<ApiProxy> proxies = new();
     private List<string> serverUrls = new();
@@ -421,12 +435,40 @@ else
     private string responseTab = "body";
 
     private string requestBody = "";
-    private List<HeaderEntry> customHeaders = new();
+    private List<HeaderEntry> customHeaders = DefaultHeaders();
 
     private ExecutionResult? executionResult;
     private bool isExecuting = false;
 
     private CancellationTokenSource? _cts;
+
+    private static List<HeaderEntry> DefaultHeaders() => new()
+    {
+        new HeaderEntry { Key = "recordLocked",          Value = "false" },
+        new HeaderEntry { Key = "retrieveNoLock",        Value = "false" },
+        new HeaderEntry { Key = "recordLockHolderName",  Value = "name" },
+        new HeaderEntry { Key = "userContextId",         Value = "DRS#0b2676b7-f6a4-4b32-ba3a-7b584fbe1463" },
+        new HeaderEntry { Key = "workflowId",            Value = "3acfb47d-dc2a-446f-a28c-c1b0adbeeab5" }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var path = BundledSpecPath();
+        bundledSpecExists = File.Exists(path);
+        if (bundledSpecExists)
+            await LoadBundledSpec();
+    }
+
+    private string BundledSpecPath() =>
+        Path.Combine(Env.WebRootPath ?? "", "openapi.json");
+
+    private async Task LoadBundledSpec()
+    {
+        var path = BundledSpecPath();
+        if (!File.Exists(path)) return;
+        openApiContent = await File.ReadAllTextAsync(path);
+        await ParseSpec();
+    }
 
     // ── Computed ──
     private IEnumerable<ApiProxy> FilteredProxies =>
@@ -556,6 +598,6 @@ else
         selectedProxy = null;
         selectedEndpoint = null;
         executionResult = null;
-        customHeaders = new();
+        customHeaders = DefaultHeaders();
     }
 }
