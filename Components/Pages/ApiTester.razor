@@ -71,6 +71,77 @@
 else
 {
     <!-- ──────────────────── Three-column tester ──────────────────── -->
+    <div class="tester-outer">
+
+    <!-- ── Connection Settings bar ── -->
+    <div class="settings-bar @(settingsExpanded ? "s-expanded" : "")">
+        <div class="settings-header" @onclick="ToggleSettings">
+            <i class="bi bi-gear-fill me-1"></i>
+            <span class="settings-title">Connection Settings</span>
+            <div class="settings-pills ms-3">
+                @if (!string.IsNullOrWhiteSpace(settingsBackendUrl))
+                {
+                    <span class="spill spill-url"><i class="bi bi-link-45deg"></i> Custom URL</span>
+                }
+                else
+                {
+                    <span class="spill spill-dim"><i class="bi bi-link-45deg"></i> Spec URL</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+                {
+                    <span class="spill spill-jwt"><i class="bi bi-shield-check-fill"></i> JWT set</span>
+                }
+            </div>
+            <i class="bi bi-chevron-@(settingsExpanded ? "up" : "down") ms-auto settings-chevron"></i>
+        </div>
+
+        @if (settingsExpanded)
+        {
+            <div class="settings-body">
+                <div class="settings-grid">
+
+                    <div class="setting-field">
+                        <label class="setting-label">Backend URL</label>
+                        <input type="text" class="setting-input"
+                               placeholder="@(serverUrls.FirstOrDefault() ?? "https://api.example.com")  ← spec default"
+                               @bind="settingsBackendUrl" @bind:event="oninput" />
+                        <span class="setting-hint">Leave blank to use the URL from the spec. Overrides for all requests.</span>
+                    </div>
+
+                    <div class="setting-field">
+                        <label class="setting-label">
+                            JWT Token
+                            <span class="setting-label-sub">→ Authorization: Bearer</span>
+                        </label>
+                        <div class="setting-input-row">
+                            <input type="@(showJwtToken ? "text" : "password")" class="setting-input"
+                                   placeholder="eyJhbGciOiJSUzI1NiIsInR5..."
+                                   @bind="settingsJwtToken" @bind:event="oninput" />
+                            <button class="setting-eye" @onclick="() => showJwtToken = !showJwtToken"
+                                    title="@(showJwtToken ? "Hide" : "Show") token">
+                                <i class="bi bi-eye@(showJwtToken ? "-slash" : "")"></i>
+                            </button>
+                        </div>
+                        <span class="setting-hint">Sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request.</span>
+                    </div>
+
+                    <div class="setting-field">
+                        <label class="setting-label">workflowId</label>
+                        <input type="text" class="setting-input"
+                               @bind="settingsWorkflowId" @bind:event="oninput" />
+                    </div>
+
+                    <div class="setting-field">
+                        <label class="setting-label">userContextId</label>
+                        <input type="text" class="setting-input"
+                               @bind="settingsUserContextId" @bind:event="oninput" />
+                    </div>
+
+                </div>
+            </div>
+        }
+    </div>
+
     <div class="tester-layout">
 
         <!-- ── Left panel: Proxy / Tag list ── -->
@@ -158,16 +229,15 @@ else
                     }
                 </div>
 
-                <!-- Base URL bar -->
+                <!-- Effective URL preview bar -->
                 <div class="url-bar">
-                    <select class="url-server-select" @bind="baseUrl">
-                        @foreach (var url in serverUrls)
-                        {
-                            <option value="@url">@url</option>
-                        }
-                    </select>
-                    <input type="text" class="url-input" @bind="baseUrl" placeholder="https://api.example.com" />
-                    <button class="btn btn-execute" @onclick="Execute" disabled="@isExecuting">
+                    <span class="url-base-part">@EffectiveBaseUrl</span>
+                    <span class="url-path-part">@selectedEndpoint.Path</span>
+                    @if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+                    {
+                        <span class="url-indicator" title="JWT token will be sent"><i class="bi bi-shield-check-fill text-success"></i></span>
+                    }
+                    <button class="btn btn-execute ms-auto" @onclick="Execute" disabled="@isExecuting">
                         @if (isExecuting)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -256,6 +326,29 @@ else
                     @if (activeTab == "headers")
                     {
                         <div class="headers-section p-3">
+                            <!-- Managed by Connection Settings -->
+                            <div class="managed-headers-box mb-3">
+                                <div class="section-label mb-2">
+                                    <i class="bi bi-gear-fill me-1 text-muted"></i>Managed by Connection Settings
+                                </div>
+                                <div class="managed-header-rows">
+                                    @if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+                                    {
+                                        <div class="managed-row">
+                                            <span class="managed-key">Authorization</span>
+                                            <span class="managed-val">Bearer ••••••••</span>
+                                        </div>
+                                    }
+                                    <div class="managed-row">
+                                        <span class="managed-key">workflowId</span>
+                                        <span class="managed-val">@settingsWorkflowId</span>
+                                    </div>
+                                    <div class="managed-row">
+                                        <span class="managed-key">userContextId</span>
+                                        <span class="managed-val">@settingsUserContextId</span>
+                                    </div>
+                                </div>
+                            </div>
                             <!-- OpenAPI-defined header params -->
                             @if (selectedEndpoint.Parameters.Any(p => p.In == "header"))
                             {
@@ -411,9 +504,18 @@ else
             }
         </div>
     </div>
+    </div><!-- /tester-outer -->
 }
 
 @code {
+    // ── Connection settings (persist across endpoint selections) ──
+    private string settingsBackendUrl   = "";
+    private string settingsJwtToken     = "";
+    private string settingsWorkflowId   = "3acfb47d-dc2a-446f-a28c-c1b0adbeeab5";
+    private string settingsUserContextId = "DRS#0b2676b7-f6a4-4b32-ba3a-7b584fbe1463";
+    private bool   settingsExpanded     = true;
+    private bool   showJwtToken         = false;
+
     // ── State ──
     private string openApiContent = "";
     private string parseError = "";
@@ -442,13 +544,12 @@ else
 
     private CancellationTokenSource? _cts;
 
+    // workflowId and userContextId are now managed via Connection Settings — not in customHeaders
     private static List<HeaderEntry> DefaultHeaders() => new()
     {
-        new HeaderEntry { Key = "recordLocked",          Value = "false" },
-        new HeaderEntry { Key = "retrieveNoLock",        Value = "false" },
-        new HeaderEntry { Key = "recordLockHolderName",  Value = "name" },
-        new HeaderEntry { Key = "userContextId",         Value = "DRS#0b2676b7-f6a4-4b32-ba3a-7b584fbe1463" },
-        new HeaderEntry { Key = "workflowId",            Value = "3acfb47d-dc2a-446f-a28c-c1b0adbeeab5" }
+        new HeaderEntry { Key = "recordLocked",         Value = "false" },
+        new HeaderEntry { Key = "retrieveNoLock",       Value = "false" },
+        new HeaderEntry { Key = "recordLockHolderName", Value = "name" }
     };
 
     protected override async Task OnInitializedAsync()
@@ -471,6 +572,28 @@ else
     }
 
     // ── Computed ──
+
+    private string EffectiveBaseUrl =>
+        string.IsNullOrWhiteSpace(settingsBackendUrl)
+            ? (baseUrl.TrimEnd('/'))
+            : settingsBackendUrl.TrimEnd('/');
+
+    private string PreviewUrl
+    {
+        get
+        {
+            if (selectedEndpoint == null) return EffectiveBaseUrl;
+            var url = EffectiveBaseUrl + selectedEndpoint.Path;
+            foreach (var p in selectedEndpoint.Parameters.Where(p => p.In == "path" && !string.IsNullOrEmpty(p.Value)))
+                url = url.Replace($"{{{p.Name}}}", p.Value);
+            var qs = selectedEndpoint.Parameters
+                .Where(p => p.In == "query" && !string.IsNullOrEmpty(p.Value))
+                .Select(p => $"{Uri.EscapeDataString(p.Name)}={Uri.EscapeDataString(p.Value)}");
+            if (qs.Any()) url += "?" + string.Join("&", qs);
+            return url;
+        }
+    }
+
     private IEnumerable<ApiProxy> FilteredProxies =>
         string.IsNullOrWhiteSpace(proxySearch)
             ? proxies
@@ -576,13 +699,29 @@ else
         executionResult = null;
         StateHasChanged();
 
+        // Build effective header list: settings-managed first, then per-request custom headers
+        var effectiveHeaders = new List<HeaderEntry>();
+
+        if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+            effectiveHeaders.Add(new HeaderEntry { Key = "Authorization", Value = $"Bearer {settingsJwtToken.Trim()}" });
+
+        if (!string.IsNullOrWhiteSpace(settingsWorkflowId))
+            effectiveHeaders.Add(new HeaderEntry { Key = "workflowId", Value = settingsWorkflowId.Trim() });
+
+        if (!string.IsNullOrWhiteSpace(settingsUserContextId))
+            effectiveHeaders.Add(new HeaderEntry { Key = "userContextId", Value = settingsUserContextId.Trim() });
+
+        effectiveHeaders.AddRange(customHeaders);
+
         executionResult = await ExecutorService.ExecuteAsync(
-            baseUrl, selectedEndpoint, requestBody, customHeaders, _cts.Token);
+            EffectiveBaseUrl, selectedEndpoint, requestBody, effectiveHeaders, _cts.Token);
 
         isExecuting = false;
         responseTab = "body";
         StateHasChanged();
     }
+
+    private void ToggleSettings() => settingsExpanded = !settingsExpanded;
 
     private void AddHeader() => customHeaders.Add(new HeaderEntry());
 
