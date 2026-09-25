@@ -2,70 +2,29 @@
 @rendermode InteractiveServer
 @inject OpenApiParserService ParserService
 @inject ApiExecutorService ExecutorService
+@inject SoapToJsonConverter SoapConverter
 @inject IWebHostEnvironment Env
+@inject IJSRuntime JS
 
 <PageTitle>REST API Tester</PageTitle>
 
-@if (!isParsed)
+@if (isLoading)
 {
-    <!-- ──────────────────── Upload / Paste screen ──────────────────── -->
-    <div class="upload-screen">
-        <div class="upload-card">
-            <div class="upload-card-header">
-                <i class="bi bi-file-earmark-code fs-1 text-primary mb-2"></i>
-                <h4 class="mb-1">Load OpenAPI Specification</h4>
-                <p class="text-muted small mb-0">Upload or paste a JSON / YAML OpenAPI 3.x spec</p>
-            </div>
-
-            <div class="upload-card-body">
-                <!-- Bundled file shortcut -->
-                @if (bundledSpecExists)
-                {
-                    <div class="bundled-spec-bar mb-3">
-                        <i class="bi bi-file-earmark-check text-success me-2"></i>
-                        <span class="small text-muted">Bundled spec found: <code>openapi.json</code></span>
-                        <button class="btn btn-sm btn-outline-primary ms-auto" @onclick="LoadBundledSpec" disabled="@isParsing">
-                            <i class="bi bi-lightning-charge me-1"></i>Load bundled
-                        </button>
-                    </div>
-                }
-
-                <!-- File picker -->
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Upload file</label>
-                    <InputFile class="form-control" accept=".json,.yaml,.yml" OnChange="HandleFileUpload" />
-                </div>
-
-                <div class="divider-or"><span>or paste below</span></div>
-
-                <!-- Paste area -->
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">OpenAPI JSON / YAML</label>
-                    <textarea class="form-control code-area" rows="10" placeholder="{ &quot;openapi&quot;: &quot;3.0.0&quot;, ... }"
-                              @bind="openApiContent" @bind:event="oninput"></textarea>
-                </div>
-
-                @if (!string.IsNullOrEmpty(parseError))
-                {
-                    <div class="alert alert-danger py-2 small mb-3">
-                        <i class="bi bi-exclamation-triangle-fill me-1"></i>@parseError
-                    </div>
-                }
-
-                <button class="btn btn-primary w-100" @onclick="ParseSpec" disabled="@(isParsing || string.IsNullOrWhiteSpace(openApiContent))">
-                    @if (isParsing)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                        <span>Parsing...</span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-lightning-charge-fill me-2"></i>
-                        <span>Load Spec</span>
-                    }
-                </button>
-            </div>
-        </div>
+    <div class="loading-screen">
+        <span class="spinner-border spinner-border-lg text-primary mb-3"></span>
+        <span class="text-muted">Loading API spec...</span>
+    </div>
+}
+else if (!string.IsNullOrEmpty(loadError))
+{
+    <div class="error-screen">
+        <i class="bi bi-exclamation-triangle-fill fs-1 text-danger mb-3"></i>
+        <h5 class="mb-2">Could not load spec</h5>
+        <p class="text-muted small mb-1">@loadError</p>
+        <code class="small text-secondary mb-4 d-block">Expected: wwwroot/openapi.json</code>
+        <button class="btn btn-primary" @onclick="ReloadSpec">
+            <i class="bi bi-arrow-clockwise me-2"></i>Retry
+        </button>
     </div>
 }
 else
@@ -148,7 +107,7 @@ else
         <div class="panel panel-proxies">
             <div class="panel-toolbar">
                 <span class="panel-title">APIs</span>
-                <button class="btn btn-sm btn-outline-secondary py-0 ms-auto" @onclick="Reset" title="Load new spec">
+                <button class="btn btn-sm btn-outline-secondary py-0 ms-auto" @onclick="ReloadSpec" title="Reload openapi.json">
                     <i class="bi bi-arrow-clockwise"></i>
                 </button>
             </div>
@@ -207,8 +166,69 @@ else
             </div>
         </div>
 
-        <!-- ── Right panel: Request / Response ── -->
+        <!-- ── Right panel: API Tester / SOAP→JSON ── -->
         <div class="panel panel-request">
+
+            <!-- Mode tabs -->
+            <div class="right-panel-tabs">
+                <button class="rpanel-tab @(rightMode == "api" ? "active" : "")" @onclick='() => rightMode = "api"'>
+                    <i class="bi bi-plug-fill me-1"></i>API Tester
+                </button>
+                <button class="rpanel-tab @(rightMode == "soap" ? "active" : "")" @onclick='() => rightMode = "soap"'>
+                    <i class="bi bi-shuffle me-1"></i>SOAP to JSON
+                </button>
+            </div>
+
+            @if (rightMode == "soap")
+            {
+                <div class="soap-converter">
+
+                    <!-- Input pane -->
+                    <div class="soap-pane">
+                        <div class="soap-pane-header">
+                            <span class="section-label">SOAP XML Input</span>
+                            <button class="btn btn-xs btn-outline-secondary ms-auto" @onclick="ClearSoap">
+                                <i class="bi bi-x me-1"></i>Clear
+                            </button>
+                            <button class="btn btn-execute ms-2" @onclick="ConvertSoap"
+                                    disabled="@string.IsNullOrWhiteSpace(soapInput)">
+                                <i class="bi bi-arrow-right-circle-fill me-1"></i>Convert
+                            </button>
+                        </div>
+                        <textarea class="soap-textarea" placeholder="Paste SOAP XML here..."
+                                  @bind="soapInput" @bind:event="oninput"></textarea>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(soapError))
+                    {
+                        <div class="alert alert-danger mx-2 my-1 py-2 small mb-0 flex-shrink-0">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>@soapError
+                        </div>
+                    }
+
+                    <!-- Output pane -->
+                    <div class="soap-pane">
+                        <div class="soap-pane-header">
+                            <span class="section-label">JSON Output</span>
+                            @if (!string.IsNullOrEmpty(soapOutput))
+                            {
+                                <button class="btn btn-xs btn-outline-secondary ms-auto" @onclick="CopyToClipboard"
+                                        title="Copy JSON to clipboard">
+                                    <i class="bi bi-clipboard me-1"></i>Copy
+                                </button>
+                                <button class="btn btn-xs btn-outline-primary ms-2" @onclick="UseAsBody"
+                                        title="Paste into request body and switch to API Tester">
+                                    <i class="bi bi-box-arrow-in-down me-1"></i>Use as body
+                                </button>
+                            }
+                        </div>
+                        <pre class="soap-output @(string.IsNullOrEmpty(soapOutput) ? "soap-output-empty" : "")">@(string.IsNullOrEmpty(soapOutput) ? "// JSON output will appear here" : soapOutput)</pre>
+                    </div>
+
+                </div>
+            }
+            else
+            {
 
             @if (selectedEndpoint == null)
             {
@@ -502,12 +522,51 @@ else
                     </div>
                 }
             }
+            } <!-- /else rightMode == "api" -->
         </div>
     </div>
     </div><!-- /tester-outer -->
 }
 
 @code {
+    // ── Right-panel mode + SOAP converter ──
+    private string rightMode   = "api";   // "api" | "soap"
+    private string soapInput   = "";
+    private string soapOutput  = "";
+    private string soapError   = "";
+
+    private void ConvertSoap()
+    {
+        soapError  = "";
+        soapOutput = "";
+        var result = SoapConverter.Convert(soapInput);
+        if (result.Success)
+            soapOutput = result.Json ?? "";
+        else
+            soapError = result.Error ?? "Conversion failed.";
+    }
+
+    private void ClearSoap()
+    {
+        soapInput  = "";
+        soapOutput = "";
+        soapError  = "";
+    }
+
+    private async Task CopyToClipboard()
+    {
+        if (!string.IsNullOrEmpty(soapOutput))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", soapOutput);
+    }
+
+    private void UseAsBody()
+    {
+        if (string.IsNullOrEmpty(soapOutput)) return;
+        requestBody = soapOutput;
+        rightMode   = "api";
+        activeTab   = "body";
+    }
+
     // ── Connection settings (persist across endpoint selections) ──
     private string settingsBackendUrl   = "";
     private string settingsJwtToken     = "";
@@ -517,11 +576,8 @@ else
     private bool   showJwtToken         = false;
 
     // ── State ──
-    private string openApiContent = "";
-    private string parseError = "";
-    private bool isParsing = false;
-    private bool isParsed = false;
-    private bool bundledSpecExists = false;
+    private bool   isLoading  = true;
+    private string loadError  = "";
 
     private List<ApiProxy> proxies = new();
     private List<string> serverUrls = new();
@@ -544,7 +600,7 @@ else
 
     private CancellationTokenSource? _cts;
 
-    // workflowId and userContextId are now managed via Connection Settings — not in customHeaders
+    // workflowId and userContextId are managed via Connection Settings — not in customHeaders
     private static List<HeaderEntry> DefaultHeaders() => new()
     {
         new HeaderEntry { Key = "recordLocked",         Value = "false" },
@@ -552,23 +608,50 @@ else
         new HeaderEntry { Key = "recordLockHolderName", Value = "name" }
     };
 
-    protected override async Task OnInitializedAsync()
-    {
-        var path = BundledSpecPath();
-        bundledSpecExists = File.Exists(path);
-        if (bundledSpecExists)
-            await LoadBundledSpec();
-    }
+    protected override async Task OnInitializedAsync() => await LoadBundledSpec();
 
     private string BundledSpecPath() =>
         Path.Combine(Env.WebRootPath ?? "", "openapi.json");
 
     private async Task LoadBundledSpec()
     {
+        isLoading = true;
+        loadError = "";
+
         var path = BundledSpecPath();
-        if (!File.Exists(path)) return;
-        openApiContent = await File.ReadAllTextAsync(path);
-        await ParseSpec();
+        if (!File.Exists(path))
+        {
+            loadError = $"openapi.json not found at: {path}";
+            isLoading = false;
+            return;
+        }
+
+        try
+        {
+            await Task.Yield(); // allow spinner to render before CPU-bound parse
+            var content = await File.ReadAllTextAsync(path);
+            var result  = ParserService.Parse(content);
+
+            if (!result.Success)
+            {
+                loadError = result.Error ?? "Failed to parse spec.";
+            }
+            else
+            {
+                proxies    = result.Proxies;
+                serverUrls = result.ServerUrls;
+                baseUrl    = serverUrls.FirstOrDefault() ?? "";
+
+                if (proxies.Any())
+                    SelectProxy(proxies.First());
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+        }
+
+        isLoading = false;
     }
 
     // ── Computed ──
@@ -611,51 +694,6 @@ else
                     e.OperationId.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase));
 
     // ── Handlers ──
-
-    private async Task HandleFileUpload(InputFileChangeEventArgs e)
-    {
-        var file = e.File;
-        try
-        {
-            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-            using var reader = new System.IO.StreamReader(stream);
-            openApiContent = await reader.ReadToEndAsync();
-        }
-        catch (Exception ex)
-        {
-            parseError = $"Could not read file: {ex.Message}";
-        }
-    }
-
-    private async Task ParseSpec()
-    {
-        if (string.IsNullOrWhiteSpace(openApiContent)) return;
-
-        isParsing = true;
-        parseError = "";
-        StateHasChanged();
-        await Task.Yield();
-
-        var result = ParserService.Parse(openApiContent);
-
-        if (!result.Success)
-        {
-            parseError = result.Error ?? "Unknown parse error.";
-        }
-        else
-        {
-            proxies = result.Proxies;
-            serverUrls = result.ServerUrls;
-            baseUrl = serverUrls.FirstOrDefault() ?? "";
-            isParsed = true;
-
-            if (proxies.Any())
-                SelectProxy(proxies.First());
-        }
-
-        isParsing = false;
-        StateHasChanged();
-    }
 
     private void SelectProxy(ApiProxy proxy)
     {
@@ -727,16 +765,16 @@ else
 
     private void ResetBody() => requestBody = selectedEndpoint?.RequestBodyExample ?? "";
 
-    private void Reset()
+    private async Task ReloadSpec()
     {
-        isParsed = false;
-        openApiContent = "";
-        parseError = "";
-        proxies = new();
-        serverUrls = new();
-        selectedProxy = null;
+        proxies         = new();
+        serverUrls      = new();
+        selectedProxy   = null;
         selectedEndpoint = null;
-        executionResult = null;
-        customHeaders = DefaultHeaders();
+        executionResult  = null;
+        customHeaders    = DefaultHeaders();
+        StateHasChanged();
+        await LoadBundledSpec();
+        StateHasChanged();
     }
 }

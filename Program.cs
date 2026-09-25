@@ -8,6 +8,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddScoped<OpenApiParserService>();
 builder.Services.AddScoped<ApiExecutorService>();
+builder.Services.AddScoped<SoapToJsonConverter>();
 builder.Services.AddHttpClient();
 
 var app = builder.Build();

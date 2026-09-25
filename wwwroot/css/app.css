@@ -10,76 +10,34 @@ html, body {
     color: #e2e2f0;
 }
 
-/* ── Upload screen ── */
-.upload-screen {
+/* ── Loading / Error screens ── */
+.loading-screen {
     display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 0.75rem;
+    background: #0f0f1a;
+    color: #555577;
+    font-size: 13px;
+}
+
+.spinner-border-lg {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-width: 3px;
+}
+
+.error-screen {
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100%;
     padding: 2rem;
     background: #0f0f1a;
-}
-
-.upload-card {
-    background: #1a1a2e;
-    border: 1px solid #2d2d4e;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 600px;
-    overflow: hidden;
-}
-
-.upload-card-header {
-    padding: 2rem 2rem 1rem;
     text-align: center;
-    border-bottom: 1px solid #2d2d4e;
-}
-
-.upload-card-body {
-    padding: 1.5rem 2rem 2rem;
-}
-
-.code-area {
-    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-    font-size: 12px;
-    background: #0a0a16;
-    color: #c0caf5;
-    border-color: #2d2d4e;
-    resize: vertical;
-}
-
-.code-area:focus {
-    background: #0a0a16;
-    color: #c0caf5;
-    border-color: #7aa2f7;
-    box-shadow: 0 0 0 2px rgba(122,162,247,0.2);
-}
-
-.bundled-spec-bar {
-    display: flex;
-    align-items: center;
-    background: #0d2a0d;
-    border: 1px solid #1f5c1f;
-    border-radius: 6px;
-    padding: 8px 12px;
-    font-size: 12px;
-}
-
-.divider-or {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin: 1rem 0;
-    color: #555577;
-    font-size: 12px;
-}
-
-.divider-or::before,
-.divider-or::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #2d2d4e;
 }
 
 /* ── Tester outer wrapper ── */
@@ -755,6 +713,108 @@ html, body {
     color: #444466;
     text-align: center;
 }
+
+/* ── Right-panel mode tabs ── */
+.right-panel-tabs {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid #1e1e36;
+    background: #0d0d1e;
+    flex-shrink: 0;
+    padding: 0 0.5rem;
+}
+
+.rpanel-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #555577;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: color 0.12s;
+    margin-bottom: -1px;
+}
+
+.rpanel-tab:hover { color: #a0a0c8; }
+
+.rpanel-tab.active {
+    color: #7aa2f7;
+    border-bottom-color: #7aa2f7;
+}
+
+/* ── SOAP → JSON converter ── */
+.soap-converter {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.soap-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.soap-pane + .soap-pane {
+    border-top: 2px solid #1e1e36;
+}
+
+.soap-pane-header {
+    display: flex;
+    align-items: center;
+    padding: 5px 12px;
+    background: #131320;
+    border-bottom: 1px solid #1e1e36;
+    flex-shrink: 0;
+    height: 36px;
+    gap: 0.4rem;
+}
+
+.soap-textarea {
+    flex: 1;
+    background: #07070f;
+    color: #c0caf5;
+    border: none;
+    outline: none;
+    padding: 0.75rem 1rem;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+    resize: none;
+    line-height: 1.65;
+}
+
+.soap-textarea::placeholder { color: #2a2a4a; }
+
+.soap-output {
+    flex: 1;
+    background: #050510;
+    color: #9ece6a;
+    border: none;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 12px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.65;
+}
+
+.soap-output-empty {
+    color: #252545 !important;
+    font-style: italic;
+}
+
+.soap-output::-webkit-scrollbar { width: 6px; height: 6px; }
+.soap-output::-webkit-scrollbar-thumb { background: #2d2d4e; border-radius: 3px; }
 
 .empty-state {
     flex: 1;
