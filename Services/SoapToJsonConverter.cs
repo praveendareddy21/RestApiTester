@@ -7,7 +7,9 @@ public class SoapToJsonConverter
 {
     /// <summary>
     /// Locates the SOAP Body, strips all XML namespaces, and serialises the inner
-    /// element tree to indented JSON.  Repeating sibling tags become JSON arrays.
+    /// element tree to indented JSON.  The outermost operation wrapper (e.g.
+    /// "startWorkflow") is unwrapped so the output starts with its children directly.
+    /// Repeating sibling tags become JSON arrays.
     /// </summary>
     public ConversionResult Convert(string xml)
     {
@@ -25,7 +27,14 @@ public class SoapToJsonConverter
                 return new ConversionResult { Error = "No <Body> element found. Make sure the input is a valid SOAP envelope." };
 
             var parsed = ParseElement(body);
-            var json   = JsonSerializer.Serialize(parsed, new JsonSerializerOptions { WriteIndented = true });
+
+            // Strip the single outermost operation wrapper (e.g. "startWorkflow")
+            // so the output contains its children directly rather than being nested
+            // under the operation name.
+            if (parsed is Dictionary<string, object> outerDict && outerDict.Count == 1)
+                parsed = outerDict.Values.First();
+
+            var json = JsonSerializer.Serialize(parsed, new JsonSerializerOptions { WriteIndented = true });
 
             return new ConversionResult { Json = json };
         }

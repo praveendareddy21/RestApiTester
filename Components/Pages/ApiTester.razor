@@ -113,19 +113,22 @@ else
             </div>
             <div class="panel-search">
                 <i class="bi bi-search search-icon"></i>
-                <input type="text" class="search-input" placeholder="Filter APIs..." @bind="proxySearch" @bind:event="oninput" />
+                <input type="text" class="search-input" placeholder="Filter APIs..."
+                       value="@proxySearch" @oninput="OnProxySearchChanged" />
             </div>
             <div class="panel-list">
-                @foreach (var proxy in FilteredProxies)
-                {
-                    <div class="proxy-item @(selectedProxy == proxy ? "active" : "")" @onclick="() => SelectProxy(proxy)">
-                        <span class="proxy-name">@proxy.Name</span>
-                        <span class="proxy-count">@proxy.Endpoints.Count</span>
-                    </div>
-                }
-                @if (!FilteredProxies.Any())
+                @if (_filteredProxies.Count == 0)
                 {
                     <div class="empty-list">No APIs match.</div>
+                }
+                else
+                {
+                    <Virtualize Items="_filteredProxies" Context="proxy" ItemSize="32" OverscanCount="5">
+                        <div class="proxy-item @(selectedProxy == proxy ? "active" : "")" @onclick="() => SelectProxy(proxy)">
+                            <span class="proxy-name">@proxy.Name</span>
+                            <span class="proxy-count">@proxy.Endpoints.Count</span>
+                        </div>
+                    </Virtualize>
                 }
             </div>
         </div>
@@ -139,17 +142,21 @@ else
             </div>
             <div class="panel-search">
                 <i class="bi bi-search search-icon"></i>
-                <input type="text" class="search-input" placeholder="Filter methods..." @bind="endpointSearch" @bind:event="oninput" />
+                <input type="text" class="search-input" placeholder="Filter methods..."
+                       value="@endpointSearch" @oninput="OnEndpointSearchChanged" />
             </div>
             <div class="panel-list">
                 @if (selectedProxy == null)
                 {
                     <div class="empty-list">Select an API group.</div>
                 }
+                else if (_filteredEndpoints.Count == 0)
+                {
+                    <div class="empty-list">No methods match.</div>
+                }
                 else
                 {
-                    @foreach (var ep in FilteredEndpoints)
-                    {
+                    <Virtualize Items="_filteredEndpoints" Context="ep" ItemSize="56" OverscanCount="5">
                         <div class="endpoint-item @(selectedEndpoint == ep ? "active" : "")" @onclick="() => SelectEndpoint(ep)">
                             <span class="method-badge method-@ep.Method.ToLower()">@ep.Method</span>
                             <div class="endpoint-info">
@@ -157,11 +164,7 @@ else
                                 <div class="endpoint-path">@ep.Path</div>
                             </div>
                         </div>
-                    }
-                    @if (!FilteredEndpoints.Any())
-                    {
-                        <div class="empty-list">No methods match.</div>
-                    }
+                    </Virtualize>
                 }
             </div>
         </div>
@@ -589,6 +592,13 @@ else
     private string proxySearch = "";
     private string endpointSearch = "";
 
+    // Cached filtered views — only recomputed when data or search text changes
+    private List<ApiProxy>    _filteredProxies   = new();
+    private List<ApiEndpoint> _filteredEndpoints = new();
+
+    private CancellationTokenSource? _proxySearchCts;
+    private CancellationTokenSource? _endpointSearchCts;
+
     private string activeTab = "params";
     private string responseTab = "body";
 
@@ -630,7 +640,8 @@ else
         {
             await Task.Yield(); // allow spinner to render before CPU-bound parse
             var content = await File.ReadAllTextAsync(path);
-            var result  = ParserService.Parse(content);
+            // Run synchronous CPU-bound parse off the Blazor Server UI thread
+            var result = await Task.Run(() => ParserService.Parse(content));
 
             if (!result.Success)
             {
@@ -642,6 +653,7 @@ else
                 serverUrls = result.ServerUrls;
                 baseUrl    = serverUrls.FirstOrDefault() ?? "";
 
+                RefreshFilteredProxies();
                 if (proxies.Any())
                     SelectProxy(proxies.First());
             }
@@ -677,21 +689,50 @@ else
         }
     }
 
-    private IEnumerable<ApiProxy> FilteredProxies =>
-        string.IsNullOrWhiteSpace(proxySearch)
+    private void RefreshFilteredProxies()
+    {
+        _filteredProxies = string.IsNullOrWhiteSpace(proxySearch)
             ? proxies
-            : proxies.Where(p => p.Name.Contains(proxySearch, StringComparison.OrdinalIgnoreCase));
+            : proxies.Where(p => p.Name.Contains(proxySearch, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
 
-    private IEnumerable<ApiEndpoint> FilteredEndpoints =>
-        selectedProxy == null
-            ? Enumerable.Empty<ApiEndpoint>()
-            : string.IsNullOrWhiteSpace(endpointSearch)
-                ? selectedProxy.Endpoints
-                : selectedProxy.Endpoints.Where(e =>
-                    e.Path.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
-                    e.Summary.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
-                    e.Method.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
-                    e.OperationId.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase));
+    private void RefreshFilteredEndpoints()
+    {
+        if (selectedProxy == null) { _filteredEndpoints = new(); return; }
+        _filteredEndpoints = string.IsNullOrWhiteSpace(endpointSearch)
+            ? selectedProxy.Endpoints
+            : selectedProxy.Endpoints.Where(e =>
+                e.Path.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
+                e.Summary.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
+                e.Method.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase) ||
+                e.OperationId.Contains(endpointSearch, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private async Task OnProxySearchChanged(ChangeEventArgs e)
+    {
+        _proxySearchCts?.Cancel();
+        _proxySearchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, _proxySearchCts.Token);
+            proxySearch = e.Value?.ToString() ?? "";
+            RefreshFilteredProxies();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task OnEndpointSearchChanged(ChangeEventArgs e)
+    {
+        _endpointSearchCts?.Cancel();
+        _endpointSearchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, _endpointSearchCts.Token);
+            endpointSearch = e.Value?.ToString() ?? "";
+            RefreshFilteredEndpoints();
+        }
+        catch (OperationCanceledException) { }
+    }
 
     // ── Handlers ──
 
@@ -701,6 +742,7 @@ else
         selectedEndpoint = null;
         executionResult = null;
         endpointSearch = "";
+        RefreshFilteredEndpoints();
 
         if (proxy.Endpoints.Any())
             SelectEndpoint(proxy.Endpoints.First());
@@ -767,12 +809,14 @@ else
 
     private async Task ReloadSpec()
     {
-        proxies         = new();
-        serverUrls      = new();
-        selectedProxy   = null;
-        selectedEndpoint = null;
-        executionResult  = null;
-        customHeaders    = DefaultHeaders();
+        proxies            = new();
+        serverUrls         = new();
+        selectedProxy      = null;
+        selectedEndpoint   = null;
+        executionResult    = null;
+        customHeaders      = DefaultHeaders();
+        _filteredProxies   = new();
+        _filteredEndpoints = new();
         StateHasChanged();
         await LoadBundledSpec();
         StateHasChanged();
