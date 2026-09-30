@@ -1,10 +1,14 @@
 using RestApiTester.Components;
+using RestApiTester.Models;
 using RestApiTester.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.Configure<OAuth2Settings>(builder.Configuration.GetSection("OAuth2"));
+builder.Services.AddSingleton<OAuth2TokenService>();
 
 builder.Services.AddScoped<OpenApiParserService>();
 builder.Services.AddScoped<ApiExecutorService>();

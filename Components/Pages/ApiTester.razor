@@ -3,6 +3,7 @@
 @inject OpenApiParserService ParserService
 @inject ApiExecutorService ExecutorService
 @inject SoapToJsonConverter SoapConverter
+@inject OAuth2TokenService TokenService
 @inject IWebHostEnvironment Env
 @inject IJSRuntime JS
 
@@ -46,9 +47,19 @@ else
                 {
                     <span class="spill spill-dim"><i class="bi bi-link-45deg"></i> Spec URL</span>
                 }
-                @if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+                @if (_isFetchingToken)
                 {
-                    <span class="spill spill-jwt"><i class="bi bi-shield-check-fill"></i> JWT set</span>
+                    <span class="spill spill-dim"><span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem;border-width:2px"></span> Fetching token...</span>
+                }
+                else if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+                {
+                    <span class="spill spill-jwt">
+                        <i class="bi bi-shield-check-fill"></i> JWT set@(TokenService.IsConfigured ? " · auto" : "")
+                    </span>
+                }
+                else if (TokenService.IsConfigured)
+                {
+                    <span class="spill spill-url"><i class="bi bi-key-fill"></i> OAuth2</span>
                 }
             </div>
             <i class="bi bi-chevron-@(settingsExpanded ? "up" : "down") ms-auto settings-chevron"></i>
@@ -71,17 +82,46 @@ else
                         <label class="setting-label">
                             JWT Token
                             <span class="setting-label-sub">→ Authorization: Bearer</span>
+                            @if (TokenService.IsConfigured && !string.IsNullOrWhiteSpace(settingsJwtToken))
+                            {
+                                <span class="badge-auto">auto</span>
+                            }
                         </label>
                         <div class="setting-input-row">
                             <input type="@(showJwtToken ? "text" : "password")" class="setting-input"
-                                   placeholder="eyJhbGciOiJSUzI1NiIsInR5..."
+                                   placeholder="@(TokenService.IsConfigured ? "Auto-fetched via OAuth2 client credentials…" : "eyJhbGciOiJSUzI1NiIsInR5...")"
                                    @bind="settingsJwtToken" @bind:event="oninput" />
-                            <button class="setting-eye" @onclick="() => showJwtToken = !showJwtToken"
-                                    title="@(showJwtToken ? "Hide" : "Show") token">
-                                <i class="bi bi-eye@(showJwtToken ? "-slash" : "")"></i>
-                            </button>
+                            @if (_isFetchingToken)
+                            {
+                                <span class="setting-eye d-flex align-items-center px-2">
+                                    <span class="spinner-border spinner-border-sm" style="width:.8rem;height:.8rem;border-width:2px"></span>
+                                </span>
+                            }
+                            else
+                            {
+                                <button class="setting-eye" @onclick="() => showJwtToken = !showJwtToken"
+                                        title="@(showJwtToken ? "Hide" : "Show") token">
+                                    <i class="bi bi-eye@(showJwtToken ? "-slash" : "")"></i>
+                                </button>
+                                @if (TokenService.IsConfigured)
+                                {
+                                    <button class="setting-eye" @onclick="RefreshTokenAsync"
+                                            title="Force-refresh OAuth2 token">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                }
+                            }
                         </div>
-                        <span class="setting-hint">Sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request.</span>
+                        <span class="setting-hint">
+                            @if (TokenService.IsConfigured)
+                            {
+                                <span>Auto-fetched on startup via <code>client_credentials</code>. Use the <i class="bi bi-arrow-clockwise"></i> button to force a refresh.</span>
+                            }
+                            else
+                            {
+                                <span>Sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request.</span>
+                            }
+                        </span>
                     </div>
 
                     <div class="setting-field">
@@ -577,6 +617,7 @@ else
     private string settingsUserContextId = "DRS#0b2676b7-f6a4-4b32-ba3a-7b584fbe1463";
     private bool   settingsExpanded     = true;
     private bool   showJwtToken         = false;
+    private bool   _isFetchingToken     = false;
 
     // ── State ──
     private bool   isLoading  = true;
@@ -618,7 +659,38 @@ else
         new HeaderEntry { Key = "recordLockHolderName", Value = "name" }
     };
 
-    protected override async Task OnInitializedAsync() => await LoadBundledSpec();
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadBundledSpec(), TryAutoFetchToken());
+    }
+
+    private async Task TryAutoFetchToken(bool forceRefresh = false)
+    {
+        if (!TokenService.IsConfigured) return;
+        if (!string.IsNullOrWhiteSpace(settingsJwtToken) && !forceRefresh) return;
+
+        _isFetchingToken = true;
+        StateHasChanged();
+        try
+        {
+            if (forceRefresh) TokenService.ClearCache();
+            var token = await TokenService.GetAccessTokenAsync();
+            if (!string.IsNullOrWhiteSpace(token))
+                settingsJwtToken = token;
+        }
+        catch { /* silently fail — user can enter the token manually */ }
+        finally
+        {
+            _isFetchingToken = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshTokenAsync()
+    {
+        settingsJwtToken = "";
+        await TryAutoFetchToken(forceRefresh: true);
+    }
 
     private string BundledSpecPath() =>
         Path.Combine(Env.WebRootPath ?? "", "openapi.json");

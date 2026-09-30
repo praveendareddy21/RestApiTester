@@ -92,6 +92,20 @@ html, body {
 .spill-jwt  { background: #1a2a3a; color: #7aa2f7; border: 1px solid #2a4a6a; }
 .spill-dim  { background: #1e1e2e; color: #444466; border: 1px solid #2a2a3e; }
 
+.badge-auto {
+    font-size: 9px;
+    font-weight: 700;
+    background: #1a2a3a;
+    color: #7aa2f7;
+    border: 1px solid #2a4a6a;
+    border-radius: 4px;
+    padding: 0 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+    margin-left: 5px;
+}
+
 .settings-chevron {
     font-size: 11px;
     color: #444466;
