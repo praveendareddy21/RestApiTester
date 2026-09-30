@@ -75,7 +75,7 @@ else
                         <label class="setting-label">Backend URL</label>
                         <input type="text" class="setting-input"
                                placeholder="@(serverUrls.FirstOrDefault() ?? "https://api.example.com")  ← spec default"
-                               @bind="settingsBackendUrl" />
+                               @bind="settingsBackendUrl" @bind:event="oninput" />
                         <span class="setting-hint">Leave blank to use the URL from the spec. Overrides for all requests.</span>
                     </div>
 
@@ -89,9 +89,9 @@ else
                             }
                         </label>
                         <div class="setting-input-row">
-                            <input type="@(showJwtToken ? "text" : "password")" class="setting-input"
+                            <input type="text" class="setting-input"
                                    placeholder="@(TokenService.IsConfigured ? "Auto-fetched via OAuth2 client credentials…" : "eyJhbGciOiJSUzI1NiIsInR5...")"
-                                   @bind="settingsJwtToken" />
+                                   @bind="settingsJwtToken" @bind:event="oninput" />
                             @if (_isFetchingToken)
                             {
                                 <span class="setting-eye d-flex align-items-center px-2">
@@ -100,14 +100,17 @@ else
                             }
                             else
                             {
-                                <button class="setting-eye" @onclick="() => showJwtToken = !showJwtToken"
-                                        title="@(showJwtToken ? "Hide" : "Show") token">
-                                    <i class="bi bi-eye@(showJwtToken ? "-slash" : "")"></i>
-                                </button>
+                                @if (!string.IsNullOrWhiteSpace(settingsJwtToken))
+                                {
+                                    <button class="setting-eye" @onclick="CopyJwtToken"
+                                            title="Copy token to clipboard">
+                                        <i class="bi bi-clipboard@(_jwtCopied ? "-check" : "")"></i>
+                                    </button>
+                                }
                                 @if (TokenService.IsConfigured)
                                 {
                                     <button class="setting-eye" @onclick="RefreshTokenAsync"
-                                            title="Force-refresh OAuth2 token">
+                                            title="Generate new token via OAuth2">
                                         <i class="bi bi-arrow-clockwise"></i>
                                     </button>
                                 }
@@ -116,11 +119,11 @@ else
                         <span class="setting-hint">
                             @if (TokenService.IsConfigured)
                             {
-                                <span>Auto-fetched on startup via <code>client_credentials</code>. Use the <i class="bi bi-arrow-clockwise"></i> button to force a refresh.</span>
+                                <span>Auto-fetched on startup via <code>client_credentials</code>. <i class="bi bi-clipboard"></i> copies to clipboard · <i class="bi bi-arrow-clockwise"></i> generates a new token.</span>
                             }
                             else
                             {
-                                <span>Sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request.</span>
+                                <span>Sent as <code>Authorization: Bearer &lt;token&gt;</code> on every request. <i class="bi bi-clipboard"></i> copies the token to clipboard.</span>
                             }
                         </span>
                     </div>
@@ -128,13 +131,13 @@ else
                     <div class="setting-field">
                         <label class="setting-label">workflowId</label>
                         <input type="text" class="setting-input"
-                               @bind="settingsWorkflowId" />
+                               @bind="settingsWorkflowId" @bind:event="oninput" />
                     </div>
 
                     <div class="setting-field">
                         <label class="setting-label">userContextId</label>
                         <input type="text" class="setting-input"
-                               @bind="settingsUserContextId" />
+                               @bind="settingsUserContextId" @bind:event="oninput" />
                     </div>
 
                 </div>
@@ -379,7 +382,7 @@ else
                                         <div>
                                             <input type="text" class="form-control form-control-sm"
                                                    placeholder="@(param.DefaultValue ?? param.Type)"
-                                                   @bind="param.Value" />
+                                                   @bind="param.Value" @bind:event="oninput" />
                                         </div>
                                     </div>
                                 }
@@ -423,7 +426,7 @@ else
                                         <input type="text" class="form-control form-control-sm" value="@param.Name" readonly />
                                         <input type="text" class="form-control form-control-sm"
                                                placeholder="value"
-                                               @bind="param.Value" />
+                                               @bind="param.Value" @bind:event="oninput" />
                                     </div>
                                 }
                                 <hr class="my-2" />
@@ -434,9 +437,9 @@ else
                             {
                                 <div class="d-flex gap-2 mb-2">
                                     <input type="text" class="form-control form-control-sm" placeholder="Header name"
-                                           @bind="header.Key" />
+                                           @bind="header.Key" @bind:event="oninput" />
                                     <input type="text" class="form-control form-control-sm" placeholder="Value"
-                                           @bind="header.Value" />
+                                           @bind="header.Value" @bind:event="oninput" />
                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => customHeaders.Remove(header)">
                                         <i class="bi bi-x"></i>
                                     </button>
@@ -457,7 +460,7 @@ else
                                     <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
                                 </button>
                             </div>
-                            <textarea class="body-editor" @bind="requestBody"
+                            <textarea class="body-editor" @bind="requestBody" @bind:event="oninput"
                                       placeholder='{ "key": "value" }'></textarea>
                         </div>
                     }
@@ -827,8 +830,8 @@ else
     private string settingsWorkflowId   = "3acfb47d-dc2a-446f-a28c-c1b0adbeeab5";
     private string settingsUserContextId = "DRS#0b2676b7-f6a4-4b32-ba3a-7b584fbe1463";
     private bool   settingsExpanded     = true;
-    private bool   showJwtToken         = false;
     private bool   _isFetchingToken     = false;
+    private bool   _jwtCopied          = false;
 
     // ── State ──
     private bool   isLoading  = true;
@@ -901,6 +904,16 @@ else
     {
         settingsJwtToken = "";
         await TryAutoFetchToken(forceRefresh: true);
+    }
+
+    private async Task CopyJwtToken()
+    {
+        if (string.IsNullOrWhiteSpace(settingsJwtToken)) return;
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", settingsJwtToken);
+        _jwtCopied = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _jwtCopied = false;
     }
 
     private string BundledSpecPath() =>
