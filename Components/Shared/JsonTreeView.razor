@@ -1,0 +1,60 @@
+@using RestApiTester.Models
+
+@* Recursive component: renders a JsonTreeNode as a collapsible, colour-coded tree. *@
+
+@if (Node.Kind is "object" or "array")
+{
+    var open  = Node.Kind == "object" ? "{" : "[";
+    var close = Node.Kind == "object" ? "}" : "]";
+    var count = Node.Children.Count;
+
+    <span class="jt-node">
+        @if (count == 0)
+        {
+            <span class="jt-brace">@open@close</span>
+        }
+        else if (Node.IsCollapsed)
+        {
+            <span class="jt-collapsed" @onclick="Expand">
+                <i class="bi bi-chevron-right jt-chev"></i><span
+                    class="jt-brace">@open</span><span
+                    class="jt-preview"> @CountLabel </span><span
+                    class="jt-brace">@close</span>
+            </span>
+        }
+        else
+        {
+            <span class="jt-expand-btn" @onclick="Collapse"><i class="bi bi-chevron-down jt-chev"></i></span>
+            <span class="jt-brace">@open</span>
+            <div class="jt-children">
+                @foreach (var child in Node.Children)
+                {
+                    <div class="jt-row">
+                        @if (child.Key != null)
+                        {
+                            <span class="jt-key">"@child.Key"</span><span class="jt-colon">: </span>
+                        }
+                        <JsonTreeView Node="child" />@if (!child.IsLast) {<span class="jt-comma">,</span>}
+                    </div>
+                }
+            </div>
+            <span class="jt-brace">@close</span>
+        }
+    </span>
+}
+else
+{
+    <span class="jt-val jt-@Node.Kind">@Node.ValueStr</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public JsonTreeNode Node { get; set; } = null!;
+
+    private void Expand()  => Node.IsCollapsed = false;
+    private void Collapse() => Node.IsCollapsed = true;
+
+    private string CountLabel =>
+        Node.Kind == "object"
+            ? $"{Node.Children.Count} {(Node.Children.Count == 1 ? "key" : "keys")}"
+            : $"{Node.Children.Count} {(Node.Children.Count == 1 ? "item" : "items")}";
+}

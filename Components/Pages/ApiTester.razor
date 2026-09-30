@@ -31,7 +31,7 @@ else if (!string.IsNullOrEmpty(loadError))
 else
 {
     <!-- ──────────────────── Three-column tester ──────────────────── -->
-    <div class="tester-outer">
+    <div class="tester-outer @(consoleState == "max" ? "console-is-max" : "")" >
 
     <!-- ── Connection Settings bar ── -->
     <div class="settings-bar @(settingsExpanded ? "s-expanded" : "")">
@@ -568,10 +568,205 @@ else
             } <!-- /else rightMode == "api" -->
         </div>
     </div>
+
+    <!-- ── Console panel ── -->
+    <div class="console-panel console-@consoleState">
+
+        <div class="console-bar" @onclick='() => { if (consoleState == "collapsed") consoleState = "normal"; }'>
+            <div class="console-bar-left">
+                <i class="bi bi-terminal-fill console-icon"></i>
+                <span class="console-title">Console</span>
+                @if (_consoleLogs.Count > 0)
+                {
+                    <span class="console-badge">@_consoleLogs.Count</span>
+                }
+            </div>
+            <div class="console-bar-right" @onclick:stopPropagation>
+                @if (_consoleLogs.Count > 0)
+                {
+                    <button class="con-btn" @onclick="ClearConsole" title="Clear all logs">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                }
+                @if (consoleState == "normal")
+                {
+                    <button class="con-btn" @onclick='() => consoleState = "max"' title="Maximize">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                    <button class="con-btn" @onclick='() => consoleState = "collapsed"' title="Collapse">
+                        <i class="bi bi-chevron-down"></i>
+                    </button>
+                }
+                else if (consoleState == "max")
+                {
+                    <button class="con-btn" @onclick='() => consoleState = "normal"' title="Restore">
+                        <i class="bi bi-fullscreen-exit"></i>
+                    </button>
+                }
+                else
+                {
+                    <button class="con-btn" @onclick='() => consoleState = "normal"' title="Open console">
+                        <i class="bi bi-chevron-up"></i>
+                    </button>
+                }
+            </div>
+        </div>
+
+        @if (consoleState != "collapsed")
+        {
+            <div class="console-body">
+                @if (_consoleLogs.Count == 0)
+                {
+                    <div class="console-empty">
+                        <i class="bi bi-terminal me-2"></i>No requests logged yet. Execute an API call to see logs here.
+                    </div>
+                }
+                else
+                {
+                    @foreach (var entry in _consoleLogs)
+                    {
+                        <div class="console-entry @(entry.IsExpanded ? "ce-open" : "")">
+
+                            <!-- Summary row -->
+                            <div class="ce-summary" @onclick="() => entry.IsExpanded = !entry.IsExpanded">
+                                <i class="bi bi-chevron-@(entry.IsExpanded ? "down" : "right") ce-arrow"></i>
+                                <span class="ce-ts">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
+                                <span class="method-badge method-@entry.Method.ToLower()">@entry.Method</span>
+                                <span class="ce-url">@entry.Url</span>
+                                @if (!string.IsNullOrEmpty(entry.ErrorMessage))
+                                {
+                                    <span class="ce-status status-5xx">ERR</span>
+                                    <span class="ce-err-msg">@entry.ErrorMessage</span>
+                                }
+                                else
+                                {
+                                    <span class="ce-status @entry.StatusClass">@entry.StatusCode</span>
+                                }
+                                <span class="ce-elapsed">@entry.ElapsedMs ms</span>
+                            </div>
+
+                            @if (entry.IsExpanded)
+                            {
+                                <div class="ce-detail">
+
+                                    <!-- Request Headers -->
+                                    <div class="ce-section">
+                                        <div class="ce-sec-hdr" @onclick="() => entry.ShowReqHeaders = !entry.ShowReqHeaders">
+                                            <i class="bi bi-chevron-@(entry.ShowReqHeaders ? "down" : "right") ce-sec-arrow"></i>
+                                            <span>Request Headers</span>
+                                            <span class="ce-sec-count">@entry.RequestHeaders.Count</span>
+                                        </div>
+                                        @if (entry.ShowReqHeaders)
+                                        {
+                                            <div class="ce-sec-body">
+                                                @foreach (var h in entry.RequestHeaders)
+                                                {
+                                                    <div class="ce-hrow">
+                                                        <span class="ce-hkey">@h.Key</span>
+                                                        <span class="ce-hcolon">:</span>
+                                                        <span class="ce-hval">@h.Value</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Request Body -->
+                                    @if (!string.IsNullOrEmpty(entry.RequestBody))
+                                    {
+                                        <div class="ce-section">
+                                            <div class="ce-sec-hdr" @onclick="() => entry.ShowReqBody = !entry.ShowReqBody">
+                                                <i class="bi bi-chevron-@(entry.ShowReqBody ? "down" : "right") ce-sec-arrow"></i>
+                                                <span>Request Body</span>
+                                            </div>
+                                            @if (entry.ShowReqBody)
+                                            {
+                                                <div class="ce-sec-body">
+                                                    @if (entry.RequestTree != null)
+                                                    {
+                                                        <div class="jt-root"><JsonTreeView Node="entry.RequestTree" /></div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <pre class="ce-raw">@entry.RequestBody</pre>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+
+                                    <!-- Response Headers -->
+                                    <div class="ce-section">
+                                        <div class="ce-sec-hdr" @onclick="() => entry.ShowResHeaders = !entry.ShowResHeaders">
+                                            <i class="bi bi-chevron-@(entry.ShowResHeaders ? "down" : "right") ce-sec-arrow"></i>
+                                            <span>Response Headers</span>
+                                            <span class="ce-sec-count">@entry.ResponseHeaders.Count</span>
+                                        </div>
+                                        @if (entry.ShowResHeaders)
+                                        {
+                                            <div class="ce-sec-body">
+                                                @foreach (var h in entry.ResponseHeaders)
+                                                {
+                                                    <div class="ce-hrow">
+                                                        <span class="ce-hkey">@h.Key</span>
+                                                        <span class="ce-hcolon">:</span>
+                                                        <span class="ce-hval">@h.Value</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Response Body -->
+                                    @if (!string.IsNullOrEmpty(entry.ResponseBody))
+                                    {
+                                        <div class="ce-section">
+                                            <div class="ce-sec-hdr" @onclick="() => entry.ShowResBody = !entry.ShowResBody">
+                                                <i class="bi bi-chevron-@(entry.ShowResBody ? "down" : "right") ce-sec-arrow"></i>
+                                                <span>Response Body</span>
+                                            </div>
+                                            @if (entry.ShowResBody)
+                                            {
+                                                <div class="ce-sec-body">
+                                                    @if (entry.ResponseTree != null)
+                                                    {
+                                                        <div class="jt-root"><JsonTreeView Node="entry.ResponseTree" /></div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <pre class="ce-raw">@entry.ResponseBody</pre>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+
+                                </div>
+                            }
+
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+    </div><!-- /console-panel -->
     </div><!-- /tester-outer -->
 }
 
 @code {
+    // ── Console ──
+    private string             consoleState = "collapsed"; // "collapsed" | "normal" | "max"
+    private List<ConsoleEntry> _consoleLogs = new();
+    private const int MaxConsoleBodyBytes   = 50_000;
+
+    private static string TrimBody(string body) =>
+        body.Length > MaxConsoleBodyBytes
+            ? body[..MaxConsoleBodyBytes] + "\n[… truncated]"
+            : body;
+
+    private void ClearConsole() => _consoleLogs.Clear();
+
     // ── Right-panel mode + SOAP converter ──
     private string rightMode   = "api";   // "api" | "soap"
     private string soapInput   = "";
@@ -867,6 +1062,33 @@ else
 
         executionResult = await ExecutorService.ExecuteAsync(
             EffectiveBaseUrl, selectedEndpoint, requestBody, effectiveHeaders, _cts.Token);
+
+        // Log to console
+        if (executionResult != null)
+        {
+            var reqBody  = TrimBody(executionResult.RequestBody  ?? "");
+            var resBody  = TrimBody(executionResult.ResponseBody ?? "");
+            _consoleLogs.Insert(0, new ConsoleEntry
+            {
+                Method          = selectedEndpoint.Method,
+                Url             = executionResult.RequestUrl,
+                StatusCode      = executionResult.StatusCode,
+                StatusClass     = executionResult.StatusClass,
+                ElapsedMs       = executionResult.ElapsedMilliseconds,
+                ErrorMessage    = executionResult.ErrorMessage ?? "",
+                RequestHeaders  = executionResult.RequestHeadersSent,
+                RequestBody     = reqBody,
+                ResponseHeaders = executionResult.ResponseHeaders,
+                ResponseBody    = resBody,
+                RequestTree     = JsonTreeNode.TryParse(reqBody),
+                ResponseTree    = JsonTreeNode.TryParse(resBody),
+            });
+            if (_consoleLogs.Count > 50)
+                _consoleLogs.RemoveRange(50, _consoleLogs.Count - 50);
+            // Auto-open console on first request
+            if (_consoleLogs.Count == 1 && consoleState == "collapsed")
+                consoleState = "normal";
+        }
 
         isExecuting = false;
         responseTab = "body";
