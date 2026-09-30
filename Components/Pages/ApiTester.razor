@@ -1,9 +1,10 @@
 @page "/"
-@rendermode InteractiveServer
+@rendermode new InteractiveServerRenderMode(prerender: false)
 @inject OpenApiParserService ParserService
 @inject ApiExecutorService ExecutorService
 @inject SoapToJsonConverter SoapConverter
 @inject OAuth2TokenService TokenService
+@inject SpecCacheService SpecCache
 @inject IWebHostEnvironment Env
 @inject IJSRuntime JS
 
@@ -74,7 +75,7 @@ else
                         <label class="setting-label">Backend URL</label>
                         <input type="text" class="setting-input"
                                placeholder="@(serverUrls.FirstOrDefault() ?? "https://api.example.com")  ← spec default"
-                               @bind="settingsBackendUrl" @bind:event="oninput" />
+                               @bind="settingsBackendUrl" />
                         <span class="setting-hint">Leave blank to use the URL from the spec. Overrides for all requests.</span>
                     </div>
 
@@ -90,7 +91,7 @@ else
                         <div class="setting-input-row">
                             <input type="@(showJwtToken ? "text" : "password")" class="setting-input"
                                    placeholder="@(TokenService.IsConfigured ? "Auto-fetched via OAuth2 client credentials…" : "eyJhbGciOiJSUzI1NiIsInR5...")"
-                                   @bind="settingsJwtToken" @bind:event="oninput" />
+                                   @bind="settingsJwtToken" />
                             @if (_isFetchingToken)
                             {
                                 <span class="setting-eye d-flex align-items-center px-2">
@@ -127,13 +128,13 @@ else
                     <div class="setting-field">
                         <label class="setting-label">workflowId</label>
                         <input type="text" class="setting-input"
-                               @bind="settingsWorkflowId" @bind:event="oninput" />
+                               @bind="settingsWorkflowId" />
                     </div>
 
                     <div class="setting-field">
                         <label class="setting-label">userContextId</label>
                         <input type="text" class="setting-input"
-                               @bind="settingsUserContextId" @bind:event="oninput" />
+                               @bind="settingsUserContextId" />
                     </div>
 
                 </div>
@@ -378,7 +379,7 @@ else
                                         <div>
                                             <input type="text" class="form-control form-control-sm"
                                                    placeholder="@(param.DefaultValue ?? param.Type)"
-                                                   @bind="param.Value" @bind:event="oninput" />
+                                                   @bind="param.Value" />
                                         </div>
                                     </div>
                                 }
@@ -422,7 +423,7 @@ else
                                         <input type="text" class="form-control form-control-sm" value="@param.Name" readonly />
                                         <input type="text" class="form-control form-control-sm"
                                                placeholder="value"
-                                               @bind="param.Value" @bind:event="oninput" />
+                                               @bind="param.Value" />
                                     </div>
                                 }
                                 <hr class="my-2" />
@@ -433,9 +434,9 @@ else
                             {
                                 <div class="d-flex gap-2 mb-2">
                                     <input type="text" class="form-control form-control-sm" placeholder="Header name"
-                                           @bind="header.Key" @bind:event="oninput" />
+                                           @bind="header.Key" />
                                     <input type="text" class="form-control form-control-sm" placeholder="Value"
-                                           @bind="header.Value" @bind:event="oninput" />
+                                           @bind="header.Value" />
                                     <button class="btn btn-sm btn-outline-danger" @onclick="() => customHeaders.Remove(header)">
                                         <i class="bi bi-x"></i>
                                     </button>
@@ -456,7 +457,7 @@ else
                                     <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
                                 </button>
                             </div>
-                            <textarea class="body-editor" @bind="requestBody" @bind:event="oninput"
+                            <textarea class="body-editor" @bind="requestBody"
                                       placeholder='{ "key": "value" }'></textarea>
                         </div>
                     }
@@ -625,10 +626,10 @@ else
                 {
                     @foreach (var entry in _consoleLogs)
                     {
-                        <div class="console-entry @(entry.IsExpanded ? "ce-open" : "")">
+                        <div @key="entry.Id" class="console-entry @(entry.IsExpanded ? "ce-open" : "")">
 
                             <!-- Summary row -->
-                            <div class="ce-summary" @onclick="() => entry.IsExpanded = !entry.IsExpanded">
+                            <div class="ce-summary" @onclick="() => ToggleConsoleEntry(entry)">
                                 <i class="bi bi-chevron-@(entry.IsExpanded ? "down" : "right") ce-arrow"></i>
                                 <span class="ce-ts">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
                                 <span class="method-badge method-@entry.Method.ToLower()">@entry.Method</span>
@@ -766,6 +767,21 @@ else
             : body;
 
     private void ClearConsole() => _consoleLogs.Clear();
+
+    private async Task ToggleConsoleEntry(ConsoleEntry entry)
+    {
+        entry.IsExpanded = !entry.IsExpanded;
+        if (entry.IsExpanded && entry.RequestTree == null && entry.ResponseTree == null)
+        {
+            // Parse JSON trees off the circuit thread on first expand
+            var req = entry.RequestBody;
+            var res = entry.ResponseBody;
+            var (reqTree, resTree) = await Task.Run(() =>
+                (JsonTreeNode.TryParse(req), JsonTreeNode.TryParse(res)));
+            entry.RequestTree  = reqTree;
+            entry.ResponseTree = resTree;
+        }
+    }
 
     // ── Right-panel mode + SOAP converter ──
     private string rightMode   = "api";   // "api" | "soap"
@@ -905,10 +921,10 @@ else
 
         try
         {
-            await Task.Yield(); // allow spinner to render before CPU-bound parse
-            var content = await File.ReadAllTextAsync(path);
-            // Run synchronous CPU-bound parse off the Blazor Server UI thread
-            var result = await Task.Run(() => ParserService.Parse(content));
+            // SpecCacheService caches the parse result across all circuits.
+            // On a warm circuit the Singleton returns instantly; only the first
+            // circuit actually runs the CPU-bound parse.
+            var result = await SpecCache.GetOrParseAsync(path, ParserService);
 
             if (!result.Success)
             {
@@ -1063,7 +1079,7 @@ else
         executionResult = await ExecutorService.ExecuteAsync(
             EffectiveBaseUrl, selectedEndpoint, requestBody, effectiveHeaders, _cts.Token);
 
-        // Log to console
+        // Log to console — JSON trees are parsed lazily on first expand
         if (executionResult != null)
         {
             var reqBody  = TrimBody(executionResult.RequestBody  ?? "");
@@ -1080,8 +1096,7 @@ else
                 RequestBody     = reqBody,
                 ResponseHeaders = executionResult.ResponseHeaders,
                 ResponseBody    = resBody,
-                RequestTree     = JsonTreeNode.TryParse(reqBody),
-                ResponseTree    = JsonTreeNode.TryParse(resBody),
+                // RequestTree / ResponseTree left null — populated lazily in ToggleConsoleEntry
             });
             if (_consoleLogs.Count > 50)
                 _consoleLogs.RemoveRange(50, _consoleLogs.Count - 50);
@@ -1103,6 +1118,7 @@ else
 
     private async Task ReloadSpec()
     {
+        SpecCache.Invalidate();
         proxies            = new();
         serverUrls         = new();
         selectedProxy      = null;

@@ -9,6 +9,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.Configure<OAuth2Settings>(builder.Configuration.GetSection("OAuth2"));
 builder.Services.AddSingleton<OAuth2TokenService>();
+builder.Services.AddSingleton<SpecCacheService>();
 
 builder.Services.AddScoped<OpenApiParserService>();
 builder.Services.AddScoped<ApiExecutorService>();

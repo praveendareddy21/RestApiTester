@@ -16,9 +16,9 @@ public class ConsoleEntry
     public Dictionary<string, string> ResponseHeaders { get; init; } = new();
     public string                     ResponseBody    { get; init; } = "";
 
-    // Pre-parsed JSON trees — null when the body is not valid JSON
-    public JsonTreeNode? RequestTree  { get; init; }
-    public JsonTreeNode? ResponseTree { get; init; }
+    // Lazily parsed on first expand — null until then (or when body is not JSON)
+    public JsonTreeNode? RequestTree  { get; set; }
+    public JsonTreeNode? ResponseTree { get; set; }
 
     // Mutable UI state
     public bool IsExpanded     { get; set; } = false;
